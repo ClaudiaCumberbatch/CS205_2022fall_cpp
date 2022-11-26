@@ -296,7 +296,27 @@ void strSubtract(Matrix * A, size_t indexA, Matrix * B, size_t indexB, Matrix * 
 }
 
 Matrix *Strassen(size_t indexA, Matrix * A, size_t indexB, Matrix * B, size_t size){
-    if (size <= 128){
+#ifdef WITH_NEON
+    if (size <= 256) {
+        Matrix *ret = createPlainMatrix(size, size);
+        memset(ret->value, 0, ret->col * ret->row * sizeof(float));
+        float32x4_t va, vb, vc;
+#pragma omp parallel for
+        for (int i = 0; i < size; i++) {
+            for (int j = 0; j < size; j++) {
+                float t = *(A->value + indexA + A->col * i + j);
+                for (int k = 0; k < size; k += 4) {
+                    vb = vld1q_f32(B->value + indexB + B->col * j + k); //B[j][k]
+                    vc = vld1q_f32(ret->value + ret->col * i + k); //C[i][k]
+                    vc = vmlaq_n_f32(vc, vb, t);
+                    vst1q_f32(ret->value + ret->col * i + k, vc);
+                }
+            }
+        }
+        return ret;
+    }
+#else
+    if (size <= 256){
         Matrix * ret = createPlainMatrix(size, size);
         memset(ret->value, 0, ret->col * ret->row * sizeof(float));
 #pragma omp parallel for
@@ -312,6 +332,7 @@ Matrix *Strassen(size_t indexA, Matrix * A, size_t indexB, Matrix * B, size_t si
         }
         return ret;
     }
+#endif
 
     //分块
     size_t newSize = (size >> 1);
@@ -321,84 +342,79 @@ Matrix *Strassen(size_t indexA, Matrix * A, size_t indexB, Matrix * B, size_t si
     //S1 = B12 - B22
     Matrix * S1 = createPlainMatrix((B->row >> 1), (B->col >> 1));
     strSubtract(B, b12, B, b22, S1, 0, newSize);
-
-    //S2 = A11 + A12
-    Matrix * S2 = createPlainMatrix((A->row >> 1), (A->col >> 1));
-    strAdd(A, a11, A, a12, S2, 0, newSize);
+    Matrix * P1 = Strassen(a11, A, 0, S1, newSize);
+    deleteMatrix(S1);
 
     //S3 = A21 + A22
     Matrix * S3 = createPlainMatrix((A->row >> 1), (A->col >> 1));
     strAdd(A, a21, A, a22, S3, 0, newSize);
-
-    //S4 = B21 - B11
-    Matrix * S4 = createPlainMatrix((B->row >> 1), (B->col >> 1));
-    strSubtract(B, b21, B, b11, S4, 0, newSize);
+    Matrix * P3 = Strassen(0, S3, b11, B, newSize);
+    deleteMatrix(S3);
 
     //S5 = A11 + A22
     Matrix * S5 = createPlainMatrix((A->row >> 1), (A->col >> 1));
     strAdd(A, a11, A, a22, S5, 0, newSize);
-
     //S6 = B11 + B22
     Matrix * S6 = createPlainMatrix((B->row >> 1), (B->col >> 1));
     strAdd(B, b11, B, b22, S6, 0, newSize);
-
-    //S7 = A12 - A22
-    Matrix * S7 = createPlainMatrix((A->row >> 1), (A->col >> 1));
-    strSubtract(A, a12, A, a22, S7, 0, newSize);
-
-    //S8 = B21 + B22
-    Matrix * S8 = createPlainMatrix((B->row >> 1), (B->col >> 1));
-    strAdd(B, b21, B, b22, S8, 0, newSize);
+    Matrix * P5 = Strassen(0, S5, 0, S6, newSize);
+    deleteMatrix(S5);
+    deleteMatrix(S6);
 
     //S9 = A11 - A21
     Matrix * S9 = createPlainMatrix((A->row >> 1), (A->col >> 1));
     strSubtract(A, a11, A, a21, S9, 0, newSize);
-
     //S10 = B11 + B12
     Matrix * S10 = createPlainMatrix((B->row >> 1), (B->col >> 1));
     strAdd(B, b11, B, b12, S10, 0, newSize);
-
-    //P1 = A11 * S1
-    Matrix * P1 = Strassen(a11, A, 0, S1, newSize);
-    Matrix * P2 = Strassen(0, S2, b22, B, newSize);
-    Matrix * P3 = Strassen(0, S3, b11, B, newSize);
-    Matrix * P4 = Strassen(a22, A, 0, S4, newSize);
-    Matrix * P5 = Strassen(0, S5, 0, S6, newSize);
-    Matrix * P6 = Strassen(0, S7, 0, S8, newSize);
     Matrix * P7 = Strassen(0, S9, 0, S10, newSize);
+    deleteMatrix(S9);
+    deleteMatrix(S10);
 
     Matrix * C = createPlainMatrix(size, size);
     size_t c11 = 0, c12 = c11 + newSize, c21 = c11 + newSize * size, c22 = c21 + newSize;
+    strAdd(P5, 0, P1, 0, C, c22, newSize);
+    strSubtract(C, c22, P3, 0, C, c22, newSize);
+    strSubtract(C, c22, P7, 0, C, c22, newSize);
+    deleteMatrix(P7);
 
+
+    //S2 = A11 + A12
+    Matrix * S2 = createPlainMatrix((A->row >> 1), (A->col >> 1));
+    strAdd(A, a11, A, a12, S2, 0, newSize);
+    Matrix * P2 = Strassen(0, S2, b22, B, newSize);
+    deleteMatrix(S2);
+    strAdd(P1, 0, P2, 0, C, c12, newSize);
+    deleteMatrix(P1);
+
+
+    //S4 = B21 - B11
+    Matrix * S4 = createPlainMatrix((B->row >> 1), (B->col >> 1));
+    strSubtract(B, b21, B, b11, S4, 0, newSize);
+    Matrix * P4 = Strassen(a22, A, 0, S4, newSize);
+    deleteMatrix(S4);
+    strAdd(P3, 0, P4, 0, C, c21, newSize);
+    deleteMatrix(P3);
+
+
+    //S7 = A12 - A22
+    Matrix * S7 = createPlainMatrix((A->row >> 1), (A->col >> 1));
+    strSubtract(A, a12, A, a22, S7, 0, newSize);
+    //S8 = B21 + B22
+    Matrix * S8 = createPlainMatrix((B->row >> 1), (B->col >> 1));
+    strAdd(B, b21, B, b22, S8, 0, newSize);
+    Matrix * P6 = Strassen(0, S7, 0, S8, newSize);
+    deleteMatrix(S7);
+    deleteMatrix(S8);
     strAdd(P5, 0, P4, 0, C, c11, newSize);
     strSubtract(C, c11, P2, 0, C, c11, newSize);
     strAdd(C, c11, P6, 0, C, c11, newSize);
 
-    strAdd(P1, 0, P2, 0, C, c12, newSize);
-
-    strAdd(P3, 0, P4, 0, C, c21, newSize);
-
-    strAdd(P5, 0, P1, 0, C, c22, newSize);
-    strSubtract(C, c22, P3, 0, C, c22, newSize);
-    strSubtract(C, c22, P7, 0, C, c22, newSize);
-
-    deleteMatrix(S1);
-    deleteMatrix(S2);
-    deleteMatrix(S3);
-    deleteMatrix(S4);
-    deleteMatrix(S5);
-    deleteMatrix(S6);
-    deleteMatrix(S7);
-    deleteMatrix(S8);
-    deleteMatrix(S9);
-    deleteMatrix(S10);
-    deleteMatrix(P1);
     deleteMatrix(P2);
-    deleteMatrix(P3);
     deleteMatrix(P4);
     deleteMatrix(P5);
     deleteMatrix(P6);
-    deleteMatrix(P7);
+
 
     return C;
 
