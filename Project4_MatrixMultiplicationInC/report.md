@@ -11,7 +11,7 @@
 ## Part 02 - Code
 这一部分阐述了一步步优化`matmul_improved` 的过程。
 ### 访存优化
-原本的矩阵乘法外层循环遍历A的行和B的列，最内层遍历A的列和B的行，那么在访问B中元素时就会出现不连续访问的情况，这会导致cache命中率不高，使得数据读写速度变慢。但如果交换j和k的顺序就能巧妙地使B中元素访问连续，提高运算效率。^[# 矩阵乘法&优化方法 - CPU篇 https://zhuanlan.zhihu.com/p/438173915]
+原本的矩阵乘法外层循环遍历A的行和B的列，最内层遍历A的列和B的行，那么在访问B中元素时就会出现不连续访问的情况，这会导致cache命中率不高，使得数据读写速度变慢。但如果交换j和k的顺序就能巧妙地使B中元素访问连续，提高运算效率。^ [# 矩阵乘法&优化方法 - CPU篇 https://zhuanlan.zhihu.com/p/438173915]
 ![[矩阵乘法.jpeg]]
 ```c
 Matrix *matmul_plain(const Matrix *matrixLeft, const Matrix *matrixRight)
