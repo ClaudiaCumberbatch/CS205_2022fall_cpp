@@ -13,13 +13,13 @@ int main()
     //热身
     printf("warm up\n");
     Matrix *result = matmul_plain(matrixx, matrixx);
-//    deleteMatrix(result);
+    deleteMatrix(result);
     result = matmul_plain(matrixx, matrixx);
-//    deleteMatrix(result);
+    deleteMatrix(result);
 
 //    for (int i = 0; i < 5; ++i) {
 
-        int tempSize = 1024;
+        int tempSize = 2048;
         printf("-----------size = %d ---------------\n", tempSize);
         matrixx = createMatrix(tempSize, tempSize);
 //        printMatrix(matrixx,0);
@@ -42,6 +42,7 @@ int main()
         float mistake = isCorrect(result, advanced);
         printf("time=%f\n", timeuse / 1000000.0);
         printf("the biggest percentage of mistake is %f %%\n", mistake);
+//        deleteMatrix(advanced);
 //        printMatrix(advanced, 0);
 
         printf("this is the opebBLAS result\n");
