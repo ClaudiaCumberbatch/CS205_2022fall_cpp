@@ -1,7 +1,11 @@
 #include "matrix.h"
 
-void printMatrix(const Matrix *matrix, int precision)
+void printMatrix(const Matrix *matrix, int precision) //小规模调试
 {
+    if (!matrix || !matrix->value){
+        fprintf(stderr, "matrix to be printed is NULL!\n");
+        return;
+    }
     size_t col = matrix->col;
     size_t row = matrix->row;
     printf("the matrix have %d rows and %d cols\n", row, col);
@@ -18,65 +22,72 @@ void printMatrix(const Matrix *matrix, int precision)
 
 bool deleteMatrix(Matrix *matrix)
 {
-    if (matrix != NULL)
-    {
-        size_t size = matrix->col * matrix->row;
-        memset(matrix->value, 0, size * sizeof(float));
-        free(matrix->value);
-        matrix->value = NULL;
-        matrix->col = 0;
-        matrix->row = 0;
-        free(matrix);
-        // printf("please remember to set this pointer to NULL\n");
-        return true;
-    }
-    else
-    {
+    //但是无法判断地址是否有效
+    if (!matrix) {
+        fprintf(stderr, "the pointer matrix is NULL!\n");
         return false;
     }
+    if (matrix->value) {
+        free(matrix->value);
+        matrix->value = NULL;
+    }
+    free(matrix);
+    return true;
 }
 
 Matrix *createMatrix(const size_t row, const size_t col){
+    if (row == 0 || col == 0){
+        fprintf(stderr, "rows and/or cols is 0.\n");
+        return NULL;
+    }
     Matrix *matrix = (Matrix *) malloc(sizeof(Matrix));
+    if (matrix == NULL){
+        fprintf(stderr, "fail to allocate memory!\n");
+        return NULL;
+    }
     matrix->col = col;
     matrix->row = row;
 //    matrix->value = (float *) aligned_alloc(128, row * col * sizeof(float));
     matrix->value = (float *) malloc(row * col * sizeof(float));
-//    memset(matrix->value, (float)3, matrix->col * matrix->row);
-//    matrix->value[6] = 2;
-    for (int r = 0; r < row; r++)
-    {
-        for (int c = 0; c < col; c++)
-        {
-            if (c == 1){
-                matrix->value[r * col + c] = 2;
-            }
-            else{
-                matrix->value[r * col + c] = 1;
-            }
-//            matrix->value[r * col + c] = r * col + c;
-        }
+    if (matrix->value == NULL){
+        fprintf(stderr, "failed to allocate memory for value!\n");
+        free(matrix);
+        return NULL;
     }
+    memset(matrix->value, 1, col * row * sizeof(float));
+    matrix->value[7] = (float)2.2;
     return matrix;
 }
 
 float isCorrect(const Matrix *correctMatrix, const Matrix *resultMatrix)
 {
+    if (!correctMatrix || !resultMatrix){
+        fprintf(stderr, "matrix pointer is/are NULL!\n");
+        return -1;
+    }
+    if (!correctMatrix->value || !resultMatrix->value){
+        fprintf(stderr, "value pointer is/are NULL!\n");
+        return -1;
+    }
+    if (correctMatrix->col != resultMatrix->col || correctMatrix->row != resultMatrix->col){
+        fprintf(stderr, "two matrices have different sizes!\n");
+        return -1;
+    }
     size_t row = correctMatrix->row;
     size_t col = correctMatrix->col;
+    size_t size = row * col;
     float max = 0;
     float original = 0;
-    for (size_t i = 0; i < row; ++i) {
-        for (size_t j = 0; j < col; ++j) {
-            if (*(correctMatrix->value + i * col + j) - *(resultMatrix->value + i * col + j) > max)
-            {
-                max = *(correctMatrix->value + i * col + j) - *(resultMatrix->value + i * col + j);
-                original = *(correctMatrix->value + i * col + j);
-            }else if(-*(correctMatrix->value + i * col + j) + *(resultMatrix->value + i * col + j) > max)
-            {
-                max = -*(correctMatrix->value + i * col + j) + *(resultMatrix->value + i * col + j);
-                original = *(resultMatrix->value + i * col + j);
-            }
+    float * p1 = correctMatrix->value;
+    float * p2 = resultMatrix->value;
+    for (size_t i = 0; i < size; i++){
+        float result = *(p1++) - *(p2++);
+        if (result > max){
+            max = result;
+            original = *(p1-1);
+        }else if (-result > max){
+            max = -result;
+            original = *(p1-1);
         }
     }
     if (original == 0)
@@ -90,23 +101,24 @@ float isCorrect(const Matrix *correctMatrix, const Matrix *resultMatrix)
     }
 }
 
-Matrix *matmul_plain(const Matrix *matrixLeft, const Matrix *matrixRight)
+bool matmul_plain(const Matrix *matrixLeft, const Matrix *matrixRight, Matrix * result)
 {
+    if (!(matrixLeft && matrixRight && result
+        && matrixLeft->value && matrixRight->value && result->value)){
+        fprintf(stderr, "pointer NULL!\n");
+        return 0;
+    }
     if (matrixLeft->col != matrixRight->row)
     {
-        printf("two matrices can not be multiplied due to illegal size!\n");
-        return NULL;
+        fprintf(stderr, "two matrices can not be multiplied due to illegal size!\n");
+        return 0;
     }
     else
     {
-        Matrix *result = (Matrix *) malloc(sizeof(Matrix));
         size_t row = matrixLeft->row;
         size_t col = matrixRight->col;
         size_t mul = matrixLeft->col;
-        result->col = col;
-        result->row = row;
-//        result->value = (float *) aligned_alloc(128, row * col * sizeof(float));
-        result->value = (float *) malloc( row * col * sizeof(float));
+        memset(result->value, 0, row * col * sizeof(float));
 #pragma omp parallel for
         for (size_t i = 0; i < row; i++)
         {
@@ -114,39 +126,36 @@ Matrix *matmul_plain(const Matrix *matrixLeft, const Matrix *matrixRight)
             {
                 for (size_t j = 0; j < col; j++)
                 {
-                    /*if (matrixLeft->col == 10){
-                        printf("i = %d, j = %d, k = %d\n", i, j, k);
-                    }*/
                     result->value[i * col + j] += matrixLeft->value[i * mul + k] * matrixRight->value[k * col + j];
                 }
             }
         }
-        return result;
+        return 1;
     }
 }
 
-Matrix *matmul_improved(const Matrix *matrixLeft, const Matrix *matrixRight)
+bool matmul_improved(const Matrix *matrixLeft, const Matrix *matrixRight, Matrix * result)
 {
+    if (!(matrixLeft && matrixRight && result
+          && matrixLeft->value && matrixRight->value && result->value)){
+        fprintf(stderr, "pointer NULL!\n");
+        return 0;
+    }
     if (matrixLeft->col != matrixRight->row)
     {
-        printf("two matrices can not be multiplied due to illegal size!\n");
-        printf("left col is %d while right row is %d\n", matrixLeft->col, matrixRight->col);
-        return NULL;
+        fprintf(stderr, "two matrices can not be multiplied due to illegal size!\n");
+        return 0;
     }
     else
     {
-        Matrix *result = (Matrix *) malloc(sizeof(Matrix));
         size_t M = matrixLeft->row;
         size_t N = matrixRight->col;
         size_t K = matrixLeft->col;
-        result->col = N;
-        result->row = M;
-        result->value = (float *)aligned_alloc(256, M * N * sizeof(float));
         memset(result->value, 0, M * N * sizeof(float));
         float t = 0;
 #ifdef WITH_NEON
         float32x4_t va, vb, vc;
-//#pragma omp parallel for
+#pragma omp parallel for
         for (int i = 0; i < M; i++) {
             for (int j = 0; j < N; j++) {
                 float t = *(matrixLeft->value + M * i + j);
@@ -158,19 +167,7 @@ Matrix *matmul_improved(const Matrix *matrixLeft, const Matrix *matrixRight)
                 }
             }
         }
-
-//        for (int i = 0; i < matrixRight->col; i++) {
-//            for (int j = 0; j < matrixLeft->row; j++) {
-//                va = vdupq_n_f32(*(matrixLeft->value + matrixLeft->col * i + j)); //A[i][j]
-//                for (int k = 0; k < matrixLeft->col; k+=4) {
-//                    vb = vld1q_f32(matrixRight->value + matrixRight->col * j + k); //B[j][k]
-//                    vc = vld1q_f32(result->value + result->col * i + k); //C[i][k]
-//                    vc = vfmaq_f32(vc, vb, va);
-//                    vst1q_f32(result->value + result->col * i + k, vc);
-//                }
-//            }
-//        }
-        return result;
+        return 1;
 #elifdef WITH_AVX2
         __m256 vecA, vecB, vecC;
 #pragma omp parallel for
@@ -185,19 +182,124 @@ Matrix *matmul_improved(const Matrix *matrixLeft, const Matrix *matrixRight)
                 }
             }
         }
-        return result;
+        return 1;
 #else
         printf( "NEON and AVX are both not supported\n" );
-        return NULL;
+        return 0;
 #endif
     }
 }
+
+/*#define UNROLL 4
+void dgemm_neon_unroll(size_t n, float *A, float *B, float *C)
+{
+    for (size_t i = 0; i < n; i += 4*UNROLL) {
+        for (size_t j = 0; j < n; j++) {
+            float32x4_t c[UNROLL];
+            for (int x = 0; x < UNROLL; x++) {
+                c[x] = vld1q_f32(C + i + x * 4 + j * n);
+            }
+            for (size_t k = 0; k < n; k++) {
+                float32x4_t b = vdupq_n_f32(B[k + j * n]);
+                for (int x = 0; x < UNROLL; x++) {
+                    c[x] = vaddq_f32(c[x],
+                                     vmulq_f32(vld1q_f32(A + i + k * n + x * 4), b));
+                }
+            }
+            for (int x = 0; x < UNROLL; x++) {
+                vst1q_f32(C + i + x * 4 + j * n, c[x]);
+            }
+        }
+    }
+}*/
+
+#define UNROLL 4
+#define BLOCKSIZE 128
+
+static inline void do_block(size_t n, size_t si, size_t sj, size_t sk,
+                            float *A, float *B, float *C)
+{
+#ifdef WITH_NEON
+    for (size_t i = si; i < si + BLOCKSIZE; i += UNROLL*4) {
+        for (size_t j = sj; j < sj + BLOCKSIZE; j++) {
+            float32x4_t c[UNROLL];
+            for (size_t x = 0; x < UNROLL; x++) {
+                c[x] = vld1q_f32(C +  i + x * 4 + j * n);
+            }
+            for (size_t k = sk; k < sk + BLOCKSIZE; k++) {
+                float32x4_t b = vdupq_n_f32(B[k + j * n]);
+                for (size_t x = 0; x < UNROLL; x++) {
+                    c[x] = vaddq_f32(c[x],
+                                     vmulq_f32(
+                                             vld1q_f32(A + n * k + x * 4 + i), b));
+                }
+            }
+
+            for (size_t x = 0; x < UNROLL; x++) {
+                vst1q_f32(C + i + x * 4 + j * n, c[x]);
+            }
+        }
+    }
+#elifdef WITH_AVX2
+    for (int i = si; i < si + BLOCKSIZE; i += UNROLL*4) {
+		for (int j = sj; j < sj + BLOCKSIZE; j++) {
+			__m256d c[UNROLL];
+			for (int x = 0; x < UNROLL; x++) {
+				c[x] = _mm256_load_pd(C+i+x*4+j*n);
+			}
+			for (int k = sk; k < sk + BLOCKSIZE; k++) {
+				__m256d b = _mm256_broadcast_sd(B+k+j*n);
+				for (int x = 0; x < UNROLL; x++) {
+					c[x] = _mm256_add_pd(c[x],
+						_mm256_mul_pd(
+							_mm256_load_pd(A+n*k+x*4+i), b));
+				}
+			}
+
+			for (int x = 0; x < UNROLL; x++) {
+				_mm256_store_pd(C+i+x*4+j*n, c[x]);
+			}
+		}
+	}
+#endif
+}
+
+void dgemm_neon_unroll_blk(size_t n, float *A, float *B, float *C)
+{
+#pragma omp parallel for
+    for (size_t sj = 0; sj < n; sj += BLOCKSIZE) {
+        for (int si = 0; si < n; si += BLOCKSIZE) {
+            for (int sk = 0; sk < n; sk += BLOCKSIZE) {
+                do_block(n, si, sj, sk, A, B, C);
+            }
+        }
+    }
+}
+
+bool neon_unroll(const Matrix *matrixLeft, const Matrix *matrixRight, Matrix *result){
+    if (!(matrixLeft && matrixRight && result
+          && matrixLeft->value && matrixRight->value && result->value)){
+        fprintf(stderr, "pointer NULL!\n");
+        return 0;
+    }
+    if (matrixLeft->col != matrixRight->row)
+    {
+        fprintf(stderr, "two matrices can not be multiplied due to illegal size!\n");
+        return 0;
+    }
+    size_t M = matrixLeft->row;
+    size_t N = matrixRight->col;
+    memset(result->value, 0, M * N * sizeof(float));
+    dgemm_neon_unroll_blk(M, matrixLeft->value, matrixRight->value, result->value);
+    return 1;
+}
+
 
 Matrix *matmul_tile(const Matrix *matrixLeft, const Matrix *matrixRight)
 {
     if (matrixLeft->col != matrixRight->row)
     {
-        printf("two matrices can not be multiplied due to illegal size!\n");
+        fprintf(stderr, "two matrices can not be multiplied due to illegal size!\n");
         return NULL;
     }
     else
@@ -234,14 +336,25 @@ Matrix *matmul_tile(const Matrix *matrixLeft, const Matrix *matrixRight)
     }
 }
 
-Matrix* createPlainMatrix(size_t row, size_t col){
+Matrix* createPlainMatrix(const size_t row, const size_t col){
+    if (row == 0 || col == 0){
+        fprintf(stderr, "rows and/or cols is 0!\n");
+        return NULL;
+    }
     Matrix *matrix = (Matrix *) malloc(sizeof(Matrix));
+    if (matrix == NULL){
+        fprintf(stderr, "failed to allocate memory!\n");
+        return NULL;
+    }
     matrix->col = col;
     matrix->row = row;
 //    matrix->value = (float *) aligned_alloc(128, row * col * sizeof(float));
     matrix->value = (float *) malloc(row * col * sizeof(float));
-//    printf("%x\n", matrix->value);
-//    printf("%f\n", matrix->value[0]);
+    if (matrix->value == NULL){
+        fprintf(stderr, "failed to allocate memory for value!\n");
+        free(matrix);
+        return NULL;
+    }
     memset(matrix->value, 0, col * row * sizeof(float));
 
     return matrix;
@@ -256,8 +369,22 @@ void strAdd(Matrix * A, size_t indexA, Matrix * B, size_t indexB, Matrix * C, si
             va = vld1q_f32(A->value + indexA + i * A->col + j);
             vb = vld1q_f32(B->value + indexB + i * B->col + j);
             vc = vaddq_f32(va, vb);
-//#pragma omp critical
             vst1q_f32(C->value + indexC + i * C->col + j, vc);
+        }
+    }
+    if (size % 4 != 0){
+        for (int j = 0; j < size % 4; j++){
+            C->value[indexC + (size-1) * C->col + j] = A->value[indexA + (size-1) * A->col + j] + B->value[indexB + (size-1) * B->col + j];
+        }
+    }
+#elifdef WITH_AVX2
+    #pragma omp parallel for
+        for (size_t i = 0; i < size; i++)
+        {
+            for (size_t j = 0; j < size; j += 8)
+            {
+                _mm256_store_ps((C->value + indexC + i * C->col + j), _mm256_add_ps(_mm256_load_ps(A->value + indexA + i * A->col + j), _mm256_load_ps(B->value + indexB + i * B->col + j)));
+            }
         }
     }
     if (size % 4 != 0){
@@ -289,6 +416,21 @@ void strSubtract(Matrix * A, size_t indexA, Matrix * B, size_t indexB, Matrix * 
             C->value[indexC + (size-1) * C->col + j] = A->value[indexA + (size-1) * A->col + j] - B->value[indexB + (size-1) * B->col + j];
         }
     }
+#elifdef WITH_AVX2
+    #pragma omp parallel for
+        for (size_t i = 0; i < size; i++)
+        {
+            for (size_t j = 0; j < size; j += 8)
+            {
+                _mm256_store_ps((C->value + indexC + i * C->col + j), _mm256_add_ps(_mm256_load_ps(A->value + indexA + i * A->col + j), _mm256_load_ps(B->value + indexB + i * B->col + j)));
+            }
+        }
+    }
+    if (size % 4 != 0){
+        for (int j = 0; j < size % 4; j++){
+            C->value[indexC + (size-1) * C->col + j] = A->value[indexA + (size-1) * A->col + j] + B->value[indexB + (size-1) * B->col + j];
+        }
+    }
 #else
     printf( "NEON and AVX are both not supported\n" );
         return NULL;
@@ -313,6 +455,7 @@ Matrix *Strassen(size_t indexA, Matrix * A, size_t indexB, Matrix * B, size_t si
                 }
             }
         }
+//        dgemm_neon_unroll_blk(size, A->value, B->value, ret->value);
         return ret;
     }
 #else
@@ -414,7 +557,6 @@ Matrix *Strassen(size_t indexA, Matrix * A, size_t indexB, Matrix * B, size_t si
     deleteMatrix(P4);
     deleteMatrix(P5);
     deleteMatrix(P6);
-
 
     return C;
 
