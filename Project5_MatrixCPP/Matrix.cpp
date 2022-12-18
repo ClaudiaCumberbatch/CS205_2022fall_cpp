@@ -181,52 +181,53 @@ bool Matrix::operator==(const Matrix &m){
         size_t size = ROW * COL * CHANNEL;
         switch (TYPE) {
             case TYPE8U:
-                /*if (memcmp(data.DATA8U, m.data.DATA8U, size * sizeof(unsigned char))){
-                    return false;
-                }
-                break;*/
             case TYPE8S:
-                /*if (memcmp(data.DATA8S, m.data.DATA8S, size * sizeof(short))){
-                    return false;
-                }
-                break;*/
             case TYPE4I:
-                /*if (memcmp(data.DATA4I, m.data.DATA4I,size * sizeof(int))){
-                    return false;
-                }
-                break;*/
-                visit([&size, &m](auto x){
-                    visit([&size, &x, &m](auto y){
+                visit([&m](auto x){
+                    visit([&x, &m](auto y){
                         if (!x || !y) throw 5;
-                        if (!memcmp(x, y, size * m.SIZE))
-                            return false;
-                        else return true;
+                        for (size_t i = 0; i < m.ROW; i++){
+                            size_t temp = i * m.STEP;
+                            if (!memcmp(y+temp, x+temp, m.COL * m.CHANNEL * m.SIZE)) {
+                                return false;
+                            }else {
+                                continue;
+                            }
+                        }
                     },m.variant_pointer);
                 }, variant_pointer);
                 break;
             case TYPE32F:
-                /*if (memcmp(data.DATA32F, m.data.DATA32F,size * sizeof(float))){
-                    return false;
-                }*/
-                visit([&size, &m](auto x){
-                    visit([&size, &x, &m](auto y){
+                visit([&m](auto x){
+                    visit([&x, &m](auto y){
                         if (!x || !y) throw 5;
-                        for (size_t i = 0; i < size; i++) {
-                            if (abs(*(x + i) - *(y + i)) > FLT_MIN) return false;
+                        size_t c = m.COL * m.CHANNEL;
+                        for (size_t i = 0; i < m.ROW; i++){
+                            for (size_t j = 0; j < c; j++){
+                                if (abs(*(x + i * m.STEP + j) - *(y + i * m.STEP + j)) > FLT_EPSILON) {
+                                    return false;
+                                }else{
+                                    continue;
+                                }
+                            }
                         }
                         return true;
                     },m.variant_pointer);
                 }, variant_pointer);
                 break;
             case TYPE64F:
-                /*if (memcmp(data.DATA64F, m.data.DATA64F,size * sizeof(double))){
-                    return false;
-                }*/
-                visit([&size, &m](auto x){
-                    visit([&size, &x, &m](auto y){
+                visit([&m](auto x){
+                    visit([&x, &m](auto y){
                         if (!x || !y) throw 5;
-                        for (size_t i = 0; i < size; i++) {
-                            if (abs(*(x + i) - *(y + i)) > DBL_MIN) return false;
+                        size_t c = m.COL * m.CHANNEL;
+                        for (size_t i = 0; i < m.ROW; i++){
+                            for (size_t j = 0; j < c; j++){
+                                if (abs(*(x + i * m.STEP + j) - *(y + i * m.STEP + j)) > DBL_EPSILON) {
+                                    return false;
+                                }else{
+                                    continue;
+                                }
+                            }
                         }
                         return true;
                     },m.variant_pointer);
@@ -470,6 +471,8 @@ std::ostream & operator<<(std::ostream & os, const Matrix::DataType &tp)
 
 bool ROI(const Matrix& original, Matrix &result, size_t indexR, size_t indexC, size_t rows, size_t cols){
     try{
+        if (rows == 0) rows = original.ROW;
+        if (cols == 0) cols = original.COL;
         if (original.ROW < indexR || indexR + rows >= original.ROW
         || original.COL < indexC || indexC + cols >= original.COL)
             throw 3;
@@ -558,4 +561,28 @@ void* ReadFromFile(std::string filename, Matrix::DataType type, size_t size){
     }catch (int eid){
         ERROR_TABLE(eid)
     }
+}
+
+Matrix deepCopy(const Matrix& original, size_t indexR, size_t indexC, size_t rows, size_t cols){
+    try{
+        if (rows == 0) rows = original.ROW;
+        if (cols == 0) cols = original.COL;
+        if (original.ROW < indexR || indexR + rows >= original.ROW
+            || original.COL < indexC || indexC + cols >= original.COL)
+            throw 3;
+        Matrix result(original.TYPE, rows, cols, NULL, original.CHANNEL, original.STEP);
+        visit([&result](auto x){
+            visit([&x, &result](auto y){
+                if (!x || !y) throw 5;
+                for (size_t i = 0; i < result.ROW; i++){
+                    size_t temp = i * result.STEP;
+                    memcpy(y+temp, x+temp, result.COL * result.CHANNEL * result.SIZE);
+                }
+            },result.variant_pointer);
+        }, original.variant_pointer);
+        return result;
+    }catch(int eid){
+        ERROR_TABLE(eid)
+    }
+    return original;
 }

@@ -216,7 +216,8 @@ public:
     }
 };
 
-bool ROI(const Matrix& original, Matrix &result, size_t indexR, size_t indexC, size_t rows, size_t cols);
+bool ROI(const Matrix& original, Matrix &result, size_t indexR = 0, size_t indexC = 0, size_t rows = 0, size_t cols = 0);
+Matrix deepCopy(const Matrix& original, size_t indexR = 0, size_t indexC = 0, size_t rows = 0, size_t cols = 0);
 void* ReadFromFile(std::string filename, Matrix::DataType type, size_t size);
 
 #endif //PROJECT_5_MATRIXCPP_MATRIX_H
